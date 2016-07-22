@@ -100,7 +100,10 @@ class disasm(object):
     def _write_mnemonic(self, params):
         params_s = []
         for param in params:
-            params_s.append(int(''.join(['%.2x' % x for x in param]), 16))
+            try:
+                params_s.append(int(''.join(['%.2x' % x for x in param]), 16))
+            except:
+                params_s.append(''.join(param))
 
         self.code[self.pc].append({'instr': self.instr['name'].lower(),
                                    'params': params_s,
@@ -108,17 +111,19 @@ class disasm(object):
         self.pc += sum(self.instr['params'])+1
 
     def _handle_jump(self, params):
-#        self.code[self.pc].append(str(params))  # debug
+        #self.code[self.pc].append({'instr':'DEBUG', 'comment':str(params)})  # debug
         jump_to = int(''.join(['%.2x' % x for y in params for x in y]), 16) + \
                       1 + sum(self.instr['params'])
         if self.instr['name'] != 'VJMPR':  # this jump is not relative
             jump_to += self.pc
+        jump_to %= 2**16
         if jump_to not in self.labels:
             self.labels[jump_to] = 'label%i' % len(self.labels)
-#            self.code[self.pc].append(str(jump_to))  # debug
             self.code[jump_to].insert(0, {'instr': '%s:' % self.labels[jump_to],
                                           'params': [],
                                           'comment': ''})
+        params = [[self.labels[jump_to]]]
+        return params
 
     def analyze(self):
         while self.pc < len(self.binary):
@@ -132,9 +137,9 @@ class disasm(object):
             except Exception:
                 self._handle_unknown_opcode()
                 continue
-            # jumping?
-            if self.instr['name'].startswith('VJ'):
-                self._handle_jump(params)
+            # jumping or calling?
+            if self.instr['name'].startswith('VJ') or self.instr['name']=='VCALL':
+                params = self._handle_jump(params)
             self._write_mnemonic(params)
 
     def print_out(self):
@@ -143,9 +148,10 @@ class disasm(object):
             if addr in self.labels:
                 print ''
             for instr in self.code[addr]:
-                line = "%.4x: " % addr
+                #line = "%.4x: " % addr
+                line = ""
                 line += instr['instr']
-                if instr['params']:
+                if ('params' in instr) and instr['params']:
                     params = []
                     for param in instr['params']:
                         try:
@@ -153,12 +159,9 @@ class disasm(object):
                         except:
                             params.append(param)
                     line += '   \t%s' % ', '.join(params)
-                if instr['comment']:
+                if ('comment' in instr) and instr['comment']:
                     line += '\t; %s' % instr['comment'].__repr__()
                 print line
-        print '>>> END'
-        print self.labels
-
 
 def main():
     if len(sys.argv) != 2:
