@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 import sys
-import string
 from collections import defaultdict
 
 
@@ -63,11 +62,23 @@ class disasm(object):
 
     def _handle_unknown_opcode(self):
         byte = self.binary[self.pc]
-        if chr(byte) in set(string.printable) - set(string.whitespace):
-            readable = chr(byte)
+        last_instr = self.pc-1
+        last_is_unknown = False
+        while last_instr >= 0:
+            for instr in self.code[last_instr]:
+                if 'instr' in instr:
+                    if instr['instr'] == 'db':
+                        last_is_unknown = instr
+                    last_instr = -1
+                    break
+            last_instr -= 1
+        if last_is_unknown:
+            last_is_unknown['params'].append(byte)
+            last_is_unknown['comment'] += chr(byte)
         else:
-            readable = ''
-        self.code[self.pc].append("db   \t0x%.2x\t; %s" % (byte, readable))
+            self.code[self.pc].append({'instr': "db",
+                                       'params': [byte],
+                                       'comment': chr(byte)})
         self.pc += 1
 
     def _read_params(self):
@@ -79,35 +90,35 @@ class disasm(object):
             params.append(self.binary[self.pc+arg_len+params_bytes_readed:
                                       self.pc+params_bytes_readed:-1])
             params_bytes_readed += arg_len
+            if not len(params[-1]):
+                raise Exception
         # reverse arguments order for some instructions
         if self.instr['reverse']:
             params = params[::-1]
         return params
 
     def _write_mnemonic(self, params):
-        instr_correct = True
         params_s = []
         for param in params:
-            if not param:  # failed to read all params
-                instr_correct = False
-                self._handle_unknown_opcode()
-                break
-            params_s.append('0x%x' % int(''.join(['%.2x' % x for x in param]), 16))
+            params_s.append(int(''.join(['%.2x' % x for x in param]), 16))
 
-        if instr_correct:
-            self.code[self.pc].append("%s  \t%s" % (self.instr['name'].lower(), ', '.join(params_s)))
-            self.pc += sum(self.instr['params'])+1
+        self.code[self.pc].append({'instr': self.instr['name'].lower(),
+                                   'params': params_s,
+                                   'comment': ''})
+        self.pc += sum(self.instr['params'])+1
 
     def _handle_jump(self, params):
-        self.code[self.pc].append(str(params))
+#        self.code[self.pc].append(str(params))  # debug
         jump_to = int(''.join(['%.2x' % x for y in params for x in y]), 16) + \
-                  1 + sum(self.instr['params'])
+                      1 + sum(self.instr['params'])
         if self.instr['name'] != 'VJMPR':  # this jump is not relative
             jump_to += self.pc
         if jump_to not in self.labels:
             self.labels[jump_to] = 'label%i' % len(self.labels)
-        self.code[self.pc].append(str(jump_to))
-        self.code[jump_to].insert(0, '%s:' % self.labels[jump_to])
+#            self.code[self.pc].append(str(jump_to))  # debug
+            self.code[jump_to].insert(0, {'instr': '%s:' % self.labels[jump_to],
+                                          'params': [],
+                                          'comment': ''})
 
     def analyze(self):
         while self.pc < len(self.binary):
@@ -116,7 +127,11 @@ class disasm(object):
                 self._handle_unknown_opcode()
                 continue
             self.instr = self.vm_opcodes[byte]
-            params = self._read_params()
+            try:
+                params = self._read_params()
+            except Exception:
+                self._handle_unknown_opcode()
+                continue
             # jumping?
             if self.instr['name'].startswith('VJ'):
                 self._handle_jump(params)
@@ -125,8 +140,22 @@ class disasm(object):
     def print_out(self):
         print '%include "vm.inc"\n'
         for addr in sorted(self.code.keys()):
-            for line in self.code[addr]:
-                print "%.4x: %s" % (addr, line)
+            if addr in self.labels:
+                print ''
+            for instr in self.code[addr]:
+                line = "%.4x: " % addr
+                line += instr['instr']
+                if instr['params']:
+                    params = []
+                    for param in instr['params']:
+                        try:
+                            params.append('0x%x' % param)
+                        except:
+                            params.append(param)
+                    line += '   \t%s' % ', '.join(params)
+                if instr['comment']:
+                    line += '\t; %s' % instr['comment'].__repr__()
+                print line
         print '>>> END'
         print self.labels
 
