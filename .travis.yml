@@ -1,7 +1,12 @@
 language: python
+addons:
+  apt:
+    packages:
+      - nasm
+
 python:
-    - "2.7"
+  - "2.7"
 
 script:
-    - cd 007-Czesc_II-Rozdzial_3-Podstawy_architektury_komputerowe/tests
-    - bash tests.sh
+  - cd 007-Czesc_II-Rozdzial_3-Podstawy_architektury_komputerowe/tests
+  - bash tests.sh
