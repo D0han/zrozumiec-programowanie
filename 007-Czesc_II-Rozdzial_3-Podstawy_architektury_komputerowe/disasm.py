@@ -94,7 +94,7 @@ class disasm(object):
                                       self.pc+params_bytes_readed:-1])
             params_bytes_readed += arg_len
             if not len(params[-1]):
-                raise Exception
+                raise ValueError
         # reverse arguments order for some instructions
         if self.instr['reverse']:
             params = params[::-1]
@@ -105,7 +105,7 @@ class disasm(object):
         for param in params:
             try:
                 params_s.append(int(''.join(['%.2x' % x for x in param]), 16))
-            except:
+            except (ValueError, TypeError):
                 params_s.append(''.join(param))
 
         self.code[self.pc].append({'instr': self.instr['name'].lower(),
@@ -130,7 +130,7 @@ class disasm(object):
         last_instr = self._find_last_instr()
         if last_instr and (last_instr['instr'] == 'db') \
                 and (last_instr['params'][-1] != 0x0):
-                    return True
+            return True
         return False
 
     def analyze(self):
@@ -142,7 +142,7 @@ class disasm(object):
             self.instr = self.vm_opcodes[byte]
             try:
                 params = self._read_params()
-            except Exception:
+            except ValueError:
                 self._handle_unknown_opcode()
                 continue
             # jumping or calling?
@@ -167,7 +167,7 @@ class disasm(object):
                     for param in instr['params']:
                         try:
                             params.append('0x%.2x' % param)
-                        except:
+                        except TypeError:
                             params.append(param)
                     line += '  \t%s' % ', '.join(params)
                 if ('comment' in instr) and instr['comment']:
@@ -187,4 +187,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
