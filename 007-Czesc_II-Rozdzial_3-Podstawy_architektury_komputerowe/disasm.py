@@ -60,21 +60,24 @@ class disasm(object):
         self.labels = {}
         self.instr = None
 
+    def _find_last_instr(self):
+        last_pc = self.pc-1
+        last_instr = False
+        while last_pc >= 0:
+            for instr in self.code[last_pc]:
+                if 'instr' in instr:
+                    last_pc = -1
+                    last_instr = instr
+                    break
+            last_pc -= 1
+        return last_instr
+
     def _handle_unknown_opcode(self):
         byte = self.binary[self.pc]
-        last_instr = self.pc-1
-        last_is_unknown = False
-        while last_instr >= 0:
-            for instr in self.code[last_instr]:
-                if 'instr' in instr:
-                    if instr['instr'] == 'db':
-                        last_is_unknown = instr
-                    last_instr = -1
-                    break
-            last_instr -= 1
-        if last_is_unknown:
-            last_is_unknown['params'].append(byte)
-            last_is_unknown['comment'] += chr(byte)
+        last_instr = self._find_last_instr()
+        if last_instr and last_instr['instr'] == 'db':
+            last_instr['params'].append(byte)
+            last_instr['comment'] += chr(byte)
         else:
             self.code[self.pc].append({'instr': "db",
                                        'params': [byte],
@@ -111,11 +114,9 @@ class disasm(object):
         self.pc += sum(self.instr['params'])+1
 
     def _handle_jump(self, params):
-        #self.code[self.pc].append({'instr':'DEBUG', 'comment':str(params)})  # debug
-        jump_to = int(''.join(['%.2x' % x for y in params for x in y]), 16) + \
-                      1 + sum(self.instr['params'])
-        if self.instr['name'] != 'VJMPR':  # this jump is not relative
-            jump_to += self.pc
+        jump_to = int(''.join(['%.2x' % x for y in params for x in y]), 16)
+        if not self.instr['name'].endswith('R'):  # this is relative
+            jump_to += self.pc + 1 + sum(self.instr['params'])
         jump_to %= 2**16
         if jump_to not in self.labels:
             self.labels[jump_to] = 'label%i' % len(self.labels)
@@ -124,6 +125,13 @@ class disasm(object):
                                           'comment': ''})
         params = [[self.labels[jump_to]]]
         return params
+
+    def _probably_string(self):
+        last_instr = self._find_last_instr()
+        if last_instr and (last_instr['instr'] == 'db') \
+                and (last_instr['params'][-1] != 0x0):
+                    return True
+        return False
 
     def analyze(self):
         while self.pc < len(self.binary):
@@ -138,7 +146,10 @@ class disasm(object):
                 self._handle_unknown_opcode()
                 continue
             # jumping or calling?
-            if self.instr['name'].startswith('VJ') or self.instr['name']=='VCALL':
+            if self.instr['name'].startswith('VJ') or self.instr['name'].startswith('VCALL'):
+                if self._probably_string():
+                    self._handle_unknown_opcode()
+                    continue
                 params = self._handle_jump(params)
             self._write_mnemonic(params)
 
@@ -148,17 +159,17 @@ class disasm(object):
             if addr in self.labels:
                 print ''
             for instr in self.code[addr]:
-                #line = "%.4x: " % addr
                 line = ""
+                #line = "%.4x: " % addr
                 line += instr['instr']
                 if ('params' in instr) and instr['params']:
                     params = []
                     for param in instr['params']:
                         try:
-                            params.append('0x%x' % param)
+                            params.append('0x%.2x' % param)
                         except:
                             params.append(param)
-                    line += '   \t%s' % ', '.join(params)
+                    line += '  \t%s' % ', '.join(params)
                 if ('comment' in instr) and instr['comment']:
                     line += '\t; %s' % instr['comment'].__repr__()
                 print line
